@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MIBEM QHSE Controle</string>
+    <string name="title_activity_main">MIBEM QHSE Controle</string>
+    <string name="package_name">com.mibem.qhse.controle</string>
+    <string name="custom_url_scheme">com.mibem.qhse.controle</string>
+</resources>
