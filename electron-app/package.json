@@ -1,6 +1,6 @@
 {
   "name": "mibem-qhse-controle",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MIBEM COMPANY — Application de controle qualite des lignes de conditionnement",
   "main": "main.js",
   "author": "MIBEM COMPANY",
@@ -24,7 +24,8 @@
     "publish": {
       "provider": "github",
       "owner": "gollydimbo-lgtm",
-      "repo": "mibem-qhse-app"
+      "repo": "mibem-qhse-app",
+      "releaseType": "release"
     },
     "win": {
       "icon": "icon.ico",
