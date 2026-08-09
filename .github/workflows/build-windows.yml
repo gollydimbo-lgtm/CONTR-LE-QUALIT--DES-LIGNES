@@ -1,18 +1,22 @@
 name: Build Windows EXE (MIBEM QHSE)
 
 on:
-  push:
-    branches: [ main, master ]
+  workflow_run:
+    workflows: ["Build Android APK (MIBEM QHSE)"]
+    types: [completed]
   workflow_dispatch: {}
 
 jobs:
   build-windows:
     runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: write
     steps:
       - name: Récupérer le code du dépôt
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
 
       - name: Lire le numéro de version
         id: version
