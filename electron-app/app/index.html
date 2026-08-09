@@ -693,6 +693,30 @@ main{
     </div>
 
     <div class="card">
+      <h2>📊 Synchronisation tableau de bord (Google Sheets)</h2>
+      <p class="hint" style="margin-top:-6px;margin-bottom:10px;">Envoie automatiquement la synthèse de fin de quart (et le détail des non-conformités) vers un Google Sheets — voir le guide fourni pour la mise en place (5 minutes, gratuit).</p>
+      <div class="field">
+        <label>URL de synchronisation (Google Apps Script)</label>
+        <input type="text" id="syncUrlInput" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-dark" id="btnSaveSyncUrl">💾 Enregistrer</button>
+        <button class="btn btn-ghost" id="btnTestSync">🔧 Tester la connexion</button>
+      </div>
+      <div id="syncTestResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>🔊 Alertes sonores</h2>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);text-transform:none;">
+          <input type="checkbox" id="soundAlertsToggle" checked style="width:18px;height:18px;">
+          Activer les sons (NC critique détectée, synchronisation réussie/échouée)
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>🍾 Produits fabriqués</h2>
       <div id="settingsProduits"></div>
       <div class="btn-row"><button class="btn btn-ghost" id="btnAddFamilleProduit">+ Nouvelle famille de produits</button></div>
@@ -1780,7 +1804,10 @@ function renderNcBlocks(){
     el.addEventListener("input", function(){ state.ncData[el.dataset.p].quantite = el.value; });
   });
   $all(".nc-classe").forEach(function(el){
-    el.addEventListener("change", function(){ state.ncData[el.dataset.p].classeDefaut = el.value; });
+    el.addEventListener("change", function(){
+      state.ncData[el.dataset.p].classeDefaut = el.value;
+      if(el.value === "Critique"){ playAlertCritical(); toast("🚨 Non-conformité CRITIQUE enregistrée"); }
+    });
   });
   $all(".nc-action").forEach(function(el){
     el.addEventListener("input", function(){ state.ncData[el.dataset.p].actionImmediate = el.value; });
@@ -1838,18 +1865,61 @@ function renderSynthPhotos(){
   renderPhotoGrid($("#synthPhotoList"), state.synthPhotos, renderSynthPhotos, true);
 }
 
+/* Redimensionne une photo côté client avant stockage : conserve une très haute
+   qualité visuelle (jusqu'à 1920 px de long côté) tout en évitant les photos
+   brutes de smartphone (parfois 4000×3000 px / plusieurs Mo) qui surchargent
+   le moteur de rendu des rapports (cause du flou / des blocages / des échecs
+   silencieux de sauvegarde locale). */
+function resizeImageDataUrl(file, maxDim, quality){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        var scale = Math.min(1, maxDim / Math.max(w, h));
+        var outW = Math.max(1, Math.round(w * scale));
+        var outH = Math.max(1, Math.round(h * scale));
+        var canvas = document.createElement("canvas");
+        canvas.width = outW;
+        canvas.height = outH;
+        var ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, outW, outH);
+        try{
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        }catch(err){
+          reject(err);
+        }
+      };
+      img.onerror = function(){ reject(new Error("image invalide")); };
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function handlePhotoFilesInput(input, arr, onDone){
   var files = Array.prototype.slice.call(input.files || []);
   if(!files.length) return;
-  var remaining = files.length;
-  files.forEach(function(file){
-    var reader = new FileReader();
-    reader.onload = function(e){
-      arr.push({src:e.target.result, caption:""});
-      remaining--;
-      if(remaining === 0){ onDone(); input.value=""; }
-    };
-    reader.readAsDataURL(file);
+  if(files.length > 1) toast("Traitement de "+files.length+" photos...");
+  Promise.all(files.map(function(file){
+    return resizeImageDataUrl(file, 1920, 0.88).catch(function(){
+      // Repli : si le redimensionnement échoue pour une raison quelconque,
+      // on garde la photo d'origine plutôt que de la perdre.
+      return new Promise(function(resolve){
+        var reader = new FileReader();
+        reader.onload = function(e){ resolve(e.target.result); };
+        reader.readAsDataURL(file);
+      });
+    });
+  })).then(function(dataUrls){
+    dataUrls.forEach(function(src){ arr.push({src:src, caption:""}); });
+    onDone();
+    input.value = "";
   });
 }
 function handleTerrainPhotoInput(input){ handlePhotoFilesInput(input, state.terrainPhotos, renderTerrainPhotos); }
@@ -2238,11 +2308,13 @@ function renderSynthPreview(){
       '<button class="btn btn-dark" id="btnSynthPDF">📄 Exporter en PDF</button>'+
       '<button class="btn btn-ghost" id="btnSynthWA">📲 Partager sur WhatsApp</button>'+
       '<button class="btn btn-dark" id="btnSynthXLSX">📊 Exporter en Excel</button>'+
+      '<button class="btn btn-primary" id="btnSynthSync">🔄 Synchroniser vers le tableau de bord</button>'+
     '</div></div>';
   $("#btnSynthPNG").addEventListener("click", function(){ exportNode($("#synthDocWrap"), "png", "MIBEM_Synthese_"+todayISO()); });
   $("#btnSynthPDF").addEventListener("click", function(){ exportNode($("#synthDocWrap"), "pdf", "MIBEM_Synthese_"+todayISO()); });
   $("#btnSynthWA").addEventListener("click", function(){ shareNode($("#synthDocWrap"), "MIBEM_Synthese_"+todayISO(), "Synthèse de fin de quart — MIBEM COMPANY"); });
   $("#btnSynthXLSX").addEventListener("click", exportShiftToExcel);
+  $("#btnSynthSync").addEventListener("click", function(){ syncToGoogleSheets(true); });
 }
 
 /* ===================== EXPORT PNG / PDF / PARTAGE ===================== */
@@ -2296,10 +2368,58 @@ function exportNode(node, kind, filename){
   });
 }
 
+/* ===================== PARTAGE (natif Android via Capacitor, ou Web Share / téléchargement) ===================== */
+function isNativeApp(){
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+
+function blobToBase64(blob){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onloadend = function(){
+      // reader.result = "data:image/png;base64,XXXX" -> ne garder que la partie base64
+      var s = reader.result;
+      resolve(s.substring(s.indexOf(",")+1));
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function shareViaNativeAndroid(blob, filename, text){
+  var Filesystem = window.Capacitor.Plugins.Filesystem;
+  var Share = window.Capacitor.Plugins.Share;
+  return blobToBase64(blob).then(function(base64){
+    return Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: "CACHE"
+    });
+  }).then(function(writeResult){
+    return Filesystem.getUri({ path: filename, directory: "CACHE" });
+  }).then(function(uriResult){
+    return Share.share({
+      title: "MIBEM — Contrôle qualité",
+      text: text,
+      url: uriResult.uri,
+      dialogTitle: "Partager le rapport MIBEM"
+    });
+  });
+}
+
 function shareNode(node, filename, text){
   toast("Préparation du partage...");
   html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
     canvas.toBlob(function(blob){
+      if(isNativeApp() && window.Capacitor.Plugins.Share && window.Capacitor.Plugins.Filesystem){
+        shareViaNativeAndroid(blob, filename+".png", text)
+          .then(function(){ toast("Partagé ✔"); })
+          .catch(function(err){
+            console.error(err);
+            toast("Partage annulé ou impossible.");
+          });
+        return;
+      }
       var file = new File([blob], filename+".png", {type:"image/png"});
       if(navigator.canShare && navigator.canShare({files:[file]})){
         navigator.share({files:[file], title:"MIBEM — Contrôle qualité", text:text})
@@ -2587,8 +2707,108 @@ function compareVersions(a, b){
   return 0;
 }
 
+/* ===================== SONS D'ALERTE (générés, sans fichier audio externe) ===================== */
+function soundsEnabled(){
+  var el = $("#soundAlertsToggle");
+  return el ? el.checked : true;
+}
+function playTone(freqs, durationMs){
+  if(!soundsEnabled()) return;
+  try{
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    var ctx = new Ctx();
+    freqs.forEach(function(freq, i){
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      var start = ctx.currentTime + i*(durationMs/1000);
+      gain.gain.exponentialRampToValueAtTime(0.25, start+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + durationMs/1000);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + durationMs/1000 + 0.02);
+    });
+    setTimeout(function(){ ctx.close && ctx.close(); }, freqs.length*durationMs + 200);
+  }catch(e){}
+}
+function playAlertCritical(){ playTone([880, 660, 880], 160); }
+function playSyncSuccess(){ playTone([523, 784], 120); }
+function playSyncError(){ playTone([300, 220], 220); }
+
+/* ===================== SYNCHRONISATION TABLEAU DE BORD (Google Sheets via Apps Script) ===================== */
+var SYNC_URL_KEY = "mibem_qhse_sync_url_v1";
+function loadSyncUrl(){ return safeLocalStorageGet(SYNC_URL_KEY) || ""; }
+function saveSyncUrl(url){ safeLocalStorageSet(SYNC_URL_KEY, url); }
+
+function buildSyncPayload(){
+  var controls = state.shiftControls;
+  var visa = $("#synth-visa") ? ($("#synth-visa").value || "") : "";
+  var ncRows = [];
+  controls.forEach(function(c){
+    Object.keys(c.nc).forEach(function(p){
+      var d = c.nc[p];
+      ncRows.push({
+        date: c.date, quart: c.quart, heure: c.heure, ligne: c.ligne,
+        produit: c.produit, lot: c.lot, parametre: p,
+        description: d.description||"", niveau: d.niveau||"", defaut: d.defaut||"",
+        quantite: d.quantite||"", classeDefaut: d.classeDefaut||"",
+        actionImmediate: d.actionImmediate||"", ncTraitee: d.ncTraitee||"Non",
+        cause: d.cause||"", controleur: c.controleur||""
+      });
+    });
+  });
+  return {
+    source: "MIBEM_QHSE_App",
+    version: APP_VERSION,
+    envoye_le: new Date().toISOString(),
+    quart: {
+      date: controls.length ? controls[0].date : todayISO(),
+      quart: controls.length ? controls[0].quart : "",
+      visa: visa,
+      nb_controles: controls.length,
+      nb_nc: ncRows.length
+    },
+    non_conformites: ncRows
+  };
+}
+
+function syncToGoogleSheets(showToast){
+  var url = loadSyncUrl();
+  if(!url){
+    if(showToast) toast("Aucune URL de synchronisation configurée (voir Paramètres).");
+    return Promise.resolve(false);
+  }
+  if(typeof fetch === "undefined"){
+    if(showToast) toast("Synchronisation indisponible sur ce navigateur.");
+    return Promise.resolve(false);
+  }
+  var payload = buildSyncPayload();
+  return fetch(url, {
+    method: "POST",
+    mode: "no-cors",
+    headers: {"Content-Type": "text/plain;charset=utf-8"},
+    body: JSON.stringify(payload)
+  }).then(function(){
+    // mode no-cors : impossible de lire la vraie réponse, on considère l'envoi réussi
+    // si aucune erreur réseau ne s'est produite.
+    playSyncSuccess();
+    if(showToast) toast("Synchronisé vers le tableau de bord ✔");
+    return true;
+  }).catch(function(err){
+    playSyncError();
+    if(showToast) toast("Échec de la synchronisation — vérifiez votre connexion.");
+    return false;
+  });
+}
+
 function checkForUpdates(){
   var host = $("#updateCheckResult");
+  if(typeof fetch === "undefined"){
+    if(host) host.innerHTML = '<div class="hint">Vérification des mises à jour non disponible sur ce navigateur.</div>';
+    return;
+  }
   if(!host) return;
   if(APP_VERSION.indexOf("__") === 0){
     host.innerHTML = '<div class="hint">Version de développement — vérification des mises à jour désactivée.</div>';
@@ -2623,6 +2843,22 @@ function checkForUpdates(){
 
 function wireSettingsEvents(){
   $("#btnCheckUpdate").addEventListener("click", checkForUpdates);
+
+  if($("#syncUrlInput")) $("#syncUrlInput").value = loadSyncUrl();
+  $("#btnSaveSyncUrl").addEventListener("click", function(){
+    saveSyncUrl($("#syncUrlInput").value.trim());
+    toast("URL de synchronisation enregistrée ✔");
+  });
+  $("#btnTestSync").addEventListener("click", function(){
+    saveSyncUrl($("#syncUrlInput").value.trim());
+    var host = $("#syncTestResult");
+    host.innerHTML = '<div class="hint">Test en cours…</div>';
+    syncToGoogleSheets(false).then(function(ok){
+      host.innerHTML = ok
+        ? '<div class="alert-box" style="border-color:var(--ok);background:#eef8f1;color:#1d5c37;">✅ Requête envoyée avec succès. Vérifiez votre Google Sheets pour confirmer la réception d\'une ligne de test.</div>'
+        : '<div class="alert-box">⚠️ URL manquante ou requête impossible — vérifiez l\'URL et votre connexion.</div>';
+    });
+  });
 
   $("#btnAddFamilleProduit").addEventListener("click", function(){
     var name = prompt("Nom de la nouvelle famille de produits :");
@@ -2724,6 +2960,7 @@ function wireSettingsEvents(){
 
 /* ===================== ÉVÉNEMENTS ===================== */
 document.addEventListener("DOMContentLoaded", function(){
+ try{
   var hl = $("#headerLogo");
   if(hl) hl.src = LOGO_DATA_URI;
 
@@ -2738,8 +2975,12 @@ document.addEventListener("DOMContentLoaded", function(){
   renderHistory();
   updateBadges();
   wireSettingsEvents();
-  checkForUpdates();
   if($("#curVersionLabel")) $("#curVersionLabel").textContent = "v"+APP_VERSION;
+  // Vérification des mises à jour différée et protégée : ne doit jamais bloquer
+  // le reste de l'application si le réseau est indisponible ou fetch() absent.
+  setTimeout(function(){
+    try{ checkForUpdates(); }catch(e){ console.error("checkForUpdates a échoué :", e); }
+  }, 50);
 
   $all(".tab-btn").forEach(function(b){
     b.addEventListener("click", function(){
@@ -2801,6 +3042,10 @@ document.addEventListener("DOMContentLoaded", function(){
   $("#btnExportPNG").addEventListener("click", function(){ exportNode($("#reportDocHost"), "png", "MIBEM_Controle_"+(currentReportCtrl?currentReportCtrl.heure.replace(":",""):todayISO())); });
   $("#btnExportPDF").addEventListener("click", function(){ exportNode($("#reportDocHost"), "pdf", "MIBEM_Controle_"+(currentReportCtrl?currentReportCtrl.heure.replace(":",""):todayISO())); });
   $("#btnShareWA").addEventListener("click", function(){ shareNode($("#reportDocHost"), "MIBEM_Controle", "Rapport de contrôle — MIBEM COMPANY — "+(currentReportCtrl?currentReportCtrl.ligne:"")); });
+ }catch(initErr){
+  console.error("Erreur au démarrage de l'application :", initErr);
+  try{ toast("Une erreur est survenue au démarrage — rechargez l'application."); }catch(e2){}
+ }
 });
 
 })();
