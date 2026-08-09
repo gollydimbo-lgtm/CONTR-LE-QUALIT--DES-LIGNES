@@ -29,8 +29,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           TAG="v${{ steps.version.outputs.value }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Le tag $TAG existe déjà."
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Le tag $TAG existe déjà sur le dépôt distant — rien à faire."
           else
             git tag "$TAG"
             git push origin "$TAG"
