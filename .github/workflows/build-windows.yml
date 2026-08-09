@@ -23,6 +23,20 @@ jobs:
         shell: bash
         run: sed -i "s/__APP_VERSION__/${{ steps.version.outputs.value }}/g" www/index.html
 
+      - name: Créer le tag Git de version (si absent)
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TAG="v${{ steps.version.outputs.value }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Le tag $TAG existe déjà."
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Tag $TAG créé et poussé."
+          fi
+
       - name: Synchroniser le contenu web vers l'application Windows
         shell: bash
         run: cp www/index.html electron-app/app/index.html
