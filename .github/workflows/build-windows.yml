@@ -1,0 +1,57 @@
+name: Build Windows EXE (MIBEM QHSE)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Récupérer le code du dépôt
+        uses: actions/checkout@v4
+
+      - name: Lire le numéro de version
+        id: version
+        shell: bash
+        run: echo "value=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Injecter le numéro de version dans l'application
+        shell: bash
+        run: sed -i "s/__APP_VERSION__/${{ steps.version.outputs.value }}/g" www/index.html
+
+      - name: Synchroniser le contenu web vers l'application Windows
+        shell: bash
+        run: cp www/index.html electron-app/app/index.html
+
+      - name: Aligner le numéro de version de l'application Windows
+        shell: bash
+        run: |
+          cd electron-app
+          npm version ${{ steps.version.outputs.value }} --no-git-tag-version --allow-same-version
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Installer les dépendances npm (application Windows)
+        working-directory: electron-app
+        run: npm install
+
+      - name: Compiler et publier l'exécutable Windows
+        working-directory: electron-app
+        run: npx electron-builder --win --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publier aussi les fichiers comme artefacts (onglet Actions)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MIBEM-QHSE-Windows
+          path: |
+            electron-app/dist_electron/*.exe
+          retention-days: 90
