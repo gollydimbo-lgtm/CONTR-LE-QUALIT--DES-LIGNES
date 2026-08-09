@@ -1,0 +1,51 @@
+{
+  "name": "mibem-qhse-controle",
+  "version": "1.1.0",
+  "description": "MIBEM COMPANY — Application de controle qualite des lignes de conditionnement",
+  "main": "main.js",
+  "author": "MIBEM COMPANY",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "publish:win": "electron-builder --win --x64 --publish always"
+  },
+  "build": {
+    "appId": "com.mibem.qhse.controle",
+    "productName": "MIBEM QHSE Controle",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "main.js",
+      "app/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "gollydimbo-lgtm",
+      "repo": "mibem-qhse-app"
+    },
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MIBEM QHSE Controle"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}
