@@ -1,0 +1,78 @@
+name: Build Android APK (MIBEM QHSE)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Récupérer le code du dépôt
+        uses: actions/checkout@v4
+
+      - name: Lire le numéro de version
+        id: version
+        run: echo "value=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Injecter le numéro de version dans l'application
+        run: sed -i "s/__APP_VERSION__/${{ steps.version.outputs.value }}/g" www/index.html
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Installer les dépendances npm
+        run: npm install
+
+      - name: Installer le JDK 21 (nécessaire pour Gradle/Android)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Installer le SDK Android
+        uses: android-actions/setup-android@v3
+
+      - name: Synchroniser le projet Capacitor (copie www/ vers android/)
+        run: npx cap sync android
+
+      - name: Rendre gradlew exécutable
+        run: chmod +x android/gradlew
+
+      - name: Compiler l'APK de débogage (installable directement)
+        run: cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Compiler le bundle AAB de production (pour publication Play Store)
+        run: cd android && ./gradlew bundleRelease --no-daemon
+        continue-on-error: true
+
+      - name: Publier l'APK comme fichier téléchargeable (onglet Actions)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MIBEM-QHSE-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 90
+
+      - name: Publier le bundle AAB (si généré avec succès)
+        uses: actions/upload-artifact@v4
+        if: hashFiles('android/app/build/outputs/bundle/release/*.aab') != ''
+        with:
+          name: MIBEM-QHSE-release-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          retention-days: 90
+
+      - name: Publier une "Release" GitHub (pour la mise à jour automatique dans l'app)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          name: MIBEM QHSE v${{ steps.version.outputs.value }}
+          files: |
+            android/app/build/outputs/apk/debug/*.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
