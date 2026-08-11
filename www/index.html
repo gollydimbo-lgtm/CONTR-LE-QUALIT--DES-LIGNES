@@ -1492,6 +1492,7 @@ var state = {
   synthPhotos: [],       // photos de la fiche de rapport papier jointes à la synthèse du quart
   typeBouteille: "LOCALE", // valeur courante du champ Type de bouteille (LOCALE / IMPORT)
   editingId: null,       // si on édite un contrôle existant
+  _mibemAlbumId: null,   // identifiant de l'album photo natif "MIBEM QHSE" (Android), mis en cache
   nextId: 1
 };
 
@@ -2318,57 +2319,7 @@ function renderSynthPreview(){
 }
 
 /* ===================== EXPORT PNG / PDF / PARTAGE ===================== */
-function exportNode(node, kind, filename){
-  toast("Génération en cours...");
-  html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
-    if(kind === "png"){
-      var link = document.createElement("a");
-      link.download = filename + ".png";
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      toast("Image exportée ✔");
-    } else {
-      var imgData = canvas.toDataURL("image/png");
-      var jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
-      var pdf = new jsPDFCtor({unit:"pt", format:"a4"});
-      var pageW = pdf.internal.pageSize.getWidth();
-      var pageH = pdf.internal.pageSize.getHeight();
-      var imgW = pageW - 40;
-      var imgH = imgW * canvas.height / canvas.width;
-      var y = 20;
-      if(imgH <= pageH - 40){
-        pdf.addImage(imgData, "PNG", 20, y, imgW, imgH);
-      } else {
-        // découpage sur plusieurs pages
-        var ratio = canvas.width / imgW;
-        var pageCanvasHeight = (pageH - 40) * ratio;
-        var totalHeight = canvas.height;
-        var offset = 0;
-        var first = true;
-        while(offset < totalHeight){
-          var sliceH = Math.min(pageCanvasHeight, totalHeight - offset);
-          var sliceCanvas = document.createElement("canvas");
-          sliceCanvas.width = canvas.width;
-          sliceCanvas.height = sliceH;
-          var ctx = sliceCanvas.getContext("2d");
-          ctx.drawImage(canvas, 0, offset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
-          var sliceData = sliceCanvas.toDataURL("image/png");
-          if(!first) pdf.addPage();
-          pdf.addImage(sliceData, "PNG", 20, 20, imgW, sliceH/ratio);
-          offset += sliceH;
-          first = false;
-        }
-      }
-      pdf.save(filename + ".pdf");
-      toast("PDF exporté ✔");
-    }
-  }).catch(function(err){
-    console.error(err);
-    toast("Erreur lors de l'export.");
-  });
-}
-
-/* ===================== PARTAGE (natif Android via Capacitor, ou Web Share / téléchargement) ===================== */
+/* ===================== UTILITAIRES NATIFS (Galerie photo + Documents Android) ===================== */
 function isNativeApp(){
   return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 }
@@ -2377,7 +2328,6 @@ function blobToBase64(blob){
   return new Promise(function(resolve, reject){
     var reader = new FileReader();
     reader.onloadend = function(){
-      // reader.result = "data:image/png;base64,XXXX" -> ne garder que la partie base64
       var s = reader.result;
       resolve(s.substring(s.indexOf(",")+1));
     };
@@ -2386,16 +2336,128 @@ function blobToBase64(blob){
   });
 }
 
-function shareViaNativeAndroid(blob, filename, text){
+var MIBEM_ALBUM_NAME = "MIBEM QHSE";
+function ensureMibemAlbum(){
+  var Media = window.Capacitor.Plugins.Media;
+  if(state._mibemAlbumId) return Promise.resolve(state._mibemAlbumId);
+  return Media.getAlbums().then(function(res){
+    var found = (res.albums||[]).find(function(a){ return a.name === MIBEM_ALBUM_NAME; });
+    if(found){ state._mibemAlbumId = found.identifier; return found.identifier; }
+    return Media.createAlbum({name: MIBEM_ALBUM_NAME}).then(function(){
+      return Media.getAlbums();
+    }).then(function(res2){
+      var found2 = (res2.albums||[]).find(function(a){ return a.name === MIBEM_ALBUM_NAME; });
+      state._mibemAlbumId = found2 ? found2.identifier : undefined;
+      return state._mibemAlbumId;
+    });
+  });
+}
+
+/* Enregistre une image (PNG) dans la vraie Galerie photo Android, dans un album "MIBEM QHSE" */
+function saveImageToNativeGallery(dataUrl, fileName){
+  var Media = window.Capacitor.Plugins.Media;
+  return ensureMibemAlbum().then(function(albumId){
+    return Media.savePhoto({ path: dataUrl, albumIdentifier: albumId, fileName: fileName });
+  });
+}
+
+/* Enregistre un document (PDF, Excel...) dans le dossier Documents réel de l'appareil */
+function saveDocumentToNativeStorage(base64Data, fileName){
+  var Filesystem = window.Capacitor.Plugins.Filesystem;
+  return Filesystem.writeFile({
+    path: fileName,
+    data: base64Data,
+    directory: "DOCUMENTS",
+    recursive: true
+  });
+}
+
+/* Construit le PDF (haute résolution, sans perte) à partir d'un nœud du rapport.
+   Retourne { blob, base64 (sans préfixe data:), dataUri } */
+function buildPdfFromNode(node){
+  return html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
+    var imgData = canvas.toDataURL("image/png");
+    var jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+    var pdf = new jsPDFCtor({unit:"pt", format:"a4"});
+    var pageW = pdf.internal.pageSize.getWidth();
+    var pageH = pdf.internal.pageSize.getHeight();
+    var imgW = pageW - 40;
+    var imgH = imgW * canvas.height / canvas.width;
+    if(imgH <= pageH - 40){
+      pdf.addImage(imgData, "PNG", 20, 20, imgW, imgH);
+    } else {
+      var ratio = canvas.width / imgW;
+      var pageCanvasHeight = (pageH - 40) * ratio;
+      var totalHeight = canvas.height;
+      var offset = 0;
+      var first = true;
+      while(offset < totalHeight){
+        var sliceH = Math.min(pageCanvasHeight, totalHeight - offset);
+        var sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceH;
+        var ctx = sliceCanvas.getContext("2d");
+        ctx.drawImage(canvas, 0, offset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+        var sliceData = sliceCanvas.toDataURL("image/png");
+        if(!first) pdf.addPage();
+        pdf.addImage(sliceData, "PNG", 20, 20, imgW, sliceH/ratio);
+        offset += sliceH;
+        first = false;
+      }
+    }
+    var dataUri = pdf.output("datauristring");
+    var base64 = dataUri.substring(dataUri.indexOf(",")+1);
+    var blob = pdf.output("blob");
+    return { blob: blob, base64: base64, dataUri: dataUri, canvas: canvas };
+  });
+}
+
+function exportNode(node, kind, filename){
+  toast("Génération en cours...");
+  if(kind === "png"){
+    html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
+      var dataUrl = canvas.toDataURL("image/png");
+      if(isNativeApp() && window.Capacitor.Plugins.Media){
+        saveImageToNativeGallery(dataUrl, filename)
+          .then(function(){ toast("✔ Enregistré dans Galerie photo > "+MIBEM_ALBUM_NAME); })
+          .catch(function(err){ console.error(err); toast("Impossible d'enregistrer dans la galerie."); });
+      } else {
+        var link = document.createElement("a");
+        link.download = filename + ".png";
+        link.href = dataUrl;
+        link.click();
+        toast("Image exportée ✔");
+      }
+    }).catch(function(err){ console.error(err); toast("Erreur lors de l'export."); });
+  } else {
+    buildPdfFromNode(node).then(function(pdfResult){
+      if(isNativeApp() && window.Capacitor.Plugins.Filesystem){
+        saveDocumentToNativeStorage(pdfResult.base64, filename+".pdf")
+          .then(function(){ toast("✔ Enregistré dans Documents > "+filename+".pdf"); })
+          .catch(function(err){ console.error(err); toast("Impossible d'enregistrer le PDF."); });
+      } else {
+        var link = document.createElement("a");
+        link.download = filename + ".pdf";
+        link.href = pdfResult.dataUri;
+        link.click();
+        toast("PDF exporté ✔");
+      }
+    }).catch(function(err){ console.error(err); toast("Erreur lors de l'export."); });
+  }
+}
+
+/* ===================== PARTAGE (natif Android via Capacitor, ou Web Share / téléchargement) =====================
+   Le partage envoie désormais un PDF plutôt qu'une image : WhatsApp compresse fortement
+   toute image envoyée comme "photo", mais ne recompresse jamais un PDF — c'est ce qui
+   garantit un rendu net et fidèle, sans aucune perte de qualité. */
+function shareViaNativeAndroid(base64, filename, mimeType, text){
   var Filesystem = window.Capacitor.Plugins.Filesystem;
   var Share = window.Capacitor.Plugins.Share;
-  return blobToBase64(blob).then(function(base64){
-    return Filesystem.writeFile({
-      path: filename,
-      data: base64,
-      directory: "CACHE"
-    });
-  }).then(function(writeResult){
+  return Filesystem.writeFile({
+    path: filename,
+    data: base64,
+    directory: "CACHE"
+  }).then(function(){
     return Filesystem.getUri({ path: filename, directory: "CACHE" });
   }).then(function(uriResult){
     return Share.share({
@@ -2408,33 +2470,28 @@ function shareViaNativeAndroid(blob, filename, text){
 }
 
 function shareNode(node, filename, text){
-  toast("Préparation du partage...");
-  html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
-    canvas.toBlob(function(blob){
-      if(isNativeApp() && window.Capacitor.Plugins.Share && window.Capacitor.Plugins.Filesystem){
-        shareViaNativeAndroid(blob, filename+".png", text)
-          .then(function(){ toast("Partagé ✔"); })
-          .catch(function(err){
-            console.error(err);
-            toast("Partage annulé ou impossible.");
-          });
-        return;
-      }
-      var file = new File([blob], filename+".png", {type:"image/png"});
-      if(navigator.canShare && navigator.canShare({files:[file]})){
-        navigator.share({files:[file], title:"MIBEM — Contrôle qualité", text:text})
-          .then(function(){ toast("Partagé ✔"); })
-          .catch(function(){});
-      } else {
-        var link = document.createElement("a");
-        link.download = filename + ".png";
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-        window.open("https://wa.me/?text=" + encodeURIComponent(text + " (image téléchargée, à joindre manuellement dans WhatsApp)"), "_blank");
-        toast("Image téléchargée — ouvrez WhatsApp pour la joindre.");
-      }
-    }, "image/png");
-  });
+  toast("Préparation du PDF (qualité maximale, non compressé par WhatsApp)...");
+  buildPdfFromNode(node).then(function(pdfResult){
+    if(isNativeApp() && window.Capacitor.Plugins.Share && window.Capacitor.Plugins.Filesystem){
+      shareViaNativeAndroid(pdfResult.base64, filename+".pdf", "application/pdf", text)
+        .then(function(){ toast("Partagé ✔ (PDF haute qualité)"); })
+        .catch(function(err){ console.error(err); toast("Partage annulé ou impossible."); });
+      return;
+    }
+    var file = new File([pdfResult.blob], filename+".pdf", {type:"application/pdf"});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      navigator.share({files:[file], title:"MIBEM — Contrôle qualité", text:text})
+        .then(function(){ toast("Partagé ✔ (PDF haute qualité)"); })
+        .catch(function(){});
+    } else {
+      var link = document.createElement("a");
+      link.download = filename + ".pdf";
+      link.href = pdfResult.dataUri;
+      link.click();
+      window.open("https://wa.me/?text=" + encodeURIComponent(text + " (PDF téléchargé, à joindre manuellement dans WhatsApp)"), "_blank");
+      toast("PDF téléchargé — ouvrez WhatsApp pour le joindre.");
+    }
+  }).catch(function(err){ console.error(err); toast("Erreur lors de la préparation du partage."); });
 }
 
 /* ===================== EXPORT EXCEL (fusion tableau de bord QHSE) ===================== */
@@ -2547,8 +2604,15 @@ function exportShiftToExcel(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetAlertes), "Points d'alerte");
 
   var filename = "MIBEM_QHSE_Export_" + todayISO() + ".xlsx";
-  XLSX.writeFile(wb, filename);
-  toast("Export Excel généré ✔");
+  if(isNativeApp() && window.Capacitor.Plugins.Filesystem){
+    var base64 = XLSX.write(wb, {bookType:"xlsx", type:"base64"});
+    saveDocumentToNativeStorage(base64, filename)
+      .then(function(){ toast("✔ Enregistré dans Documents > "+filename); })
+      .catch(function(err){ console.error(err); toast("Impossible d'enregistrer le fichier Excel."); });
+  } else {
+    XLSX.writeFile(wb, filename);
+    toast("Export Excel généré ✔");
+  }
 }
 
 /* ===================== GESTION DU CATALOGUE (PARAMÈTRES) ===================== */
