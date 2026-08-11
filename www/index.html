@@ -2362,13 +2362,29 @@ function saveImageToNativeGallery(dataUrl, fileName){
 }
 
 /* Enregistre un document (PDF, Excel...) dans le dossier Documents réel de l'appareil */
+/* Demande la permission de stockage public si nécessaire (obligatoire sur certaines
+   versions d'Android avant d'écrire dans Documents ; ignoré sans erreur si l'appareil
+   n'en a pas besoin — Android 10+ gère cela différemment en interne). */
+function ensureStoragePermission(){
+  var Filesystem = window.Capacitor.Plugins.Filesystem;
+  if(!Filesystem.checkPermissions || !Filesystem.requestPermissions){
+    return Promise.resolve();
+  }
+  return Filesystem.checkPermissions().then(function(status){
+    if(status && status.publicStorage === "granted") return;
+    return Filesystem.requestPermissions().catch(function(){});
+  }).catch(function(){});
+}
+
 function saveDocumentToNativeStorage(base64Data, fileName){
   var Filesystem = window.Capacitor.Plugins.Filesystem;
-  return Filesystem.writeFile({
-    path: fileName,
-    data: base64Data,
-    directory: "DOCUMENTS",
-    recursive: true
+  return ensureStoragePermission().then(function(){
+    return Filesystem.writeFile({
+      path: fileName,
+      data: base64Data,
+      directory: "DOCUMENTS",
+      recursive: true
+    });
   });
 }
 
@@ -2433,8 +2449,12 @@ function exportNode(node, kind, filename){
     buildPdfFromNode(node).then(function(pdfResult){
       if(isNativeApp() && window.Capacitor.Plugins.Filesystem){
         saveDocumentToNativeStorage(pdfResult.base64, filename+".pdf")
-          .then(function(){ toast("✔ Enregistré dans Documents > "+filename+".pdf"); })
-          .catch(function(err){ console.error(err); toast("Impossible d'enregistrer le PDF."); });
+          .then(function(){ toast("✔ Enregistré : Fichiers > Documents > "+filename+".pdf"); })
+          .catch(function(err){
+            console.error(err);
+            toast("Enregistrement direct impossible — choisissez où l'enregistrer :");
+            offerNativeSaveFallback(pdfResult.base64, filename+".pdf", "application/pdf");
+          });
       } else {
         var link = document.createElement("a");
         link.download = filename + ".pdf";
@@ -2444,6 +2464,26 @@ function exportNode(node, kind, filename){
       }
     }).catch(function(err){ console.error(err); toast("Erreur lors de l'export."); });
   }
+}
+
+/* Filet de sécurité : si l'écriture directe dans Documents échoue (permission refusée,
+   restriction du fabricant, etc.), on ouvre le partage natif Android — l'utilisateur peut
+   alors choisir "Fichiers", "Drive" ou toute autre app pour enregistrer le fichier lui-même,
+   ce qui fonctionne toujours, quel que soit l'appareil. */
+function offerNativeSaveFallback(base64, fileName, mimeType){
+  if(!(isNativeApp() && window.Capacitor.Plugins.Filesystem && window.Capacitor.Plugins.Share)) return;
+  var Filesystem = window.Capacitor.Plugins.Filesystem;
+  var Share = window.Capacitor.Plugins.Share;
+  Filesystem.writeFile({ path: fileName, data: base64, directory: "CACHE" })
+    .then(function(){ return Filesystem.getUri({ path: fileName, directory: "CACHE" }); })
+    .then(function(uriResult){
+      return Share.share({
+        title: "Enregistrer le fichier MIBEM",
+        files: [uriResult.uri],
+        dialogTitle: "Choisir où enregistrer ce fichier"
+      });
+    })
+    .catch(function(err){ console.error(err); toast("Impossible d'ouvrir les options d'enregistrement."); });
 }
 
 /* ===================== PARTAGE (natif Android via Capacitor, ou Web Share / téléchargement) =====================
@@ -2463,7 +2503,7 @@ function shareViaNativeAndroid(base64, filename, mimeType, text){
     return Share.share({
       title: "MIBEM — Contrôle qualité",
       text: text,
-      url: uriResult.uri,
+      files: [uriResult.uri],
       dialogTitle: "Partager le rapport MIBEM"
     });
   });
@@ -2607,8 +2647,12 @@ function exportShiftToExcel(){
   if(isNativeApp() && window.Capacitor.Plugins.Filesystem){
     var base64 = XLSX.write(wb, {bookType:"xlsx", type:"base64"});
     saveDocumentToNativeStorage(base64, filename)
-      .then(function(){ toast("✔ Enregistré dans Documents > "+filename); })
-      .catch(function(err){ console.error(err); toast("Impossible d'enregistrer le fichier Excel."); });
+      .then(function(){ toast("✔ Enregistré : Fichiers > Documents > "+filename); })
+      .catch(function(err){
+        console.error(err);
+        toast("Enregistrement direct impossible — choisissez où l'enregistrer :");
+        offerNativeSaveFallback(base64, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      });
   } else {
     XLSX.writeFile(wb, filename);
     toast("Export Excel généré ✔");
