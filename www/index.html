@@ -270,6 +270,13 @@ main{
 .photo-btn{
   flex:1;min-width:150px;text-align:center;cursor:pointer;
 }
+.photo-single-wrap{margin-bottom:6px;}
+.photo-single-btn{width:100%;}
+.photo-choice-box{
+  max-width:320px;text-align:center;
+}
+.photo-choice-box h3{margin:4px 0 14px;font-size:1rem;color:var(--dark2);}
+.photo-choice-actions{display:flex;flex-direction:column;gap:8px;}
 .synth-photo-card{
   background:#fffaf0;
   border:2.5px solid var(--gold);
@@ -461,6 +468,39 @@ main{
   border-radius:6px;border:1px solid #ccc;display:block;padding:4px;
 }
 .report-doc .rphoto-cap{margin-top:4px;font-weight:600;}
+
+/* Grille 4x4 façon page A4 pour les photos de preuve : nette, régulière, sans déformation
+   (object-fit:contain préserve les proportions d'origine de chaque photo). */
+.report-doc .rphotos-a4-page{
+  display:grid;
+  grid-template-columns:repeat(4, 1fr);
+  grid-template-rows:repeat(4, 1fr);
+  gap:6px;
+  width:100%;
+  aspect-ratio:210/280; /* proportions proches d'une page A4 */
+  margin-top:10px;
+  page-break-inside:avoid;
+}
+.report-doc .rphoto-a4-cell{
+  position:relative;
+  overflow:hidden;
+  border-radius:5px;
+  border:1px solid #ccc;
+  background:#f4f2ec;
+}
+.report-doc .rphoto-a4-cell img{
+  width:100%;height:100%;object-fit:contain;display:block;
+}
+.report-doc .rphoto-a4-empty{
+  background:#faf9f5;border-style:dashed;border-color:#ddd;
+}
+.report-doc .rphoto-a4-cap{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(20,15,10,.62);color:#fff;
+  font-family:-apple-system,Arial,sans-serif;font-size:.58rem;font-weight:600;
+  padding:2px 4px;text-align:center;line-height:1.2;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .bottom-nav{
   position:fixed;bottom:0;left:0;right:0;
   background:#fff;border-top:1px solid var(--line);
@@ -622,9 +662,10 @@ main{
     <div class="card">
       <h2>📷 Photos terrain (preuves)</h2>
       <p class="hint" style="margin-top:-6px;margin-bottom:10px;">Ajoutez ici les photos prises sur le terrain (état produit, ligne, anomalie…) comme preuve. Elles seront jointes automatiquement au rapport de ce contrôle.</p>
-      <div class="photo-input-row">
-        <label class="btn btn-ghost photo-btn">📷 Prendre une photo<input type="file" accept="image/*" capture="environment" id="terrainPhotoCamera" multiple style="display:none"></label>
-        <label class="btn btn-ghost photo-btn">🖼️ Choisir depuis la galerie<input type="file" accept="image/*" id="terrainPhotoGallery" multiple style="display:none"></label>
+      <div class="photo-single-wrap">
+        <button type="button" class="btn btn-ghost photo-single-btn">📷 Ajouter une photo</button>
+        <input type="file" accept="image/*" capture="environment" id="terrainPhotoCamera" multiple style="display:none">
+        <input type="file" accept="image/*" id="terrainPhotoGallery" multiple style="display:none">
       </div>
       <div class="photo-grid" id="terrainPhotoList"></div>
     </div>
@@ -663,9 +704,10 @@ main{
     <div class="card synth-photo-card">
       <h2>📷 PHOTO DE LA FICHE DE RAPPORT <span style="color:var(--nc);">★</span></h2>
       <p class="hint" style="margin-top:-4px;margin-bottom:12px;">Espace dédié : déposez ici la photo de la fiche de rapport papier remplie en fin de quart (ou toute autre preuve globale du quart). Elle sera affichée en grand format dans la synthèse exportée.</p>
-      <div class="photo-input-row">
-        <label class="btn btn-primary photo-btn">📷 Prendre une photo<input type="file" accept="image/*" capture="environment" id="synthPhotoCamera" multiple style="display:none"></label>
-        <label class="btn btn-dark photo-btn">🖼️ Choisir depuis la galerie<input type="file" accept="image/*" id="synthPhotoGallery" multiple style="display:none"></label>
+      <div class="photo-single-wrap">
+        <button type="button" class="btn btn-primary photo-single-btn">📷 Ajouter une photo</button>
+        <input type="file" accept="image/*" capture="environment" id="synthPhotoCamera" multiple style="display:none">
+        <input type="file" accept="image/*" id="synthPhotoGallery" multiple style="display:none">
       </div>
       <div class="photo-grid photo-grid-large" id="synthPhotoList"></div>
     </div>
@@ -770,7 +812,18 @@ main{
     <div class="modal-actions">
       <button class="btn btn-primary" id="btnExportPNG">🖼️ Exporter en image</button>
       <button class="btn btn-dark" id="btnExportPDF">📄 Exporter en PDF</button>
-      <button class="btn btn-ghost" id="btnShareWA">📲 Partager sur WhatsApp</button>
+      <button class="btn btn-ghost" id="btnShareWA">📤 Partager (WhatsApp, e-mail, Drive…)</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="photoChoiceModal">
+  <div class="modal-box photo-choice-box">
+    <h3>Ajouter une photo</h3>
+    <div class="photo-choice-actions">
+      <button type="button" class="btn btn-primary btn-block" id="photoChoiceCamera">📷 Prendre une photo</button>
+      <button type="button" class="btn btn-dark btn-block" id="photoChoiceGallery">🖼️ Choisir depuis la galerie</button>
+      <button type="button" class="btn btn-ghost btn-block" id="photoChoiceCancel">Annuler</button>
     </div>
   </div>
 </div>
@@ -1715,18 +1768,25 @@ function attachBulletPrefix(el){
   });
 }
 
+/* Bouton photo unique : au tap, propose le choix Caméra / Galerie via une petite fenêtre,
+   au lieu d'afficher deux boutons séparés en permanence. */
 function photoInputPairHtml(cls, dataP){
   var dp = dataP!=null ? ' data-p="'+escapeHtml(dataP)+'"' : '';
   return (
-    '<div class="photo-input-row">'+
-      '<label class="btn btn-ghost photo-btn">📷 Prendre une photo'+
-        '<input type="file" accept="image/*" capture="environment" class="'+cls+'-camera" multiple'+dp+' style="display:none">'+
-      '</label>'+
-      '<label class="btn btn-ghost photo-btn">🖼️ Choisir depuis la galerie'+
-        '<input type="file" accept="image/*" class="'+cls+'-gallery" multiple'+dp+' style="display:none">'+
-      '</label>'+
+    '<div class="photo-single-wrap">'+
+      '<button type="button" class="btn btn-ghost photo-single-btn">📷 Ajouter une photo</button>'+
+      '<input type="file" accept="image/*" capture="environment" class="'+cls+'-camera" multiple'+dp+' style="display:none">'+
+      '<input type="file" accept="image/*" class="'+cls+'-gallery" multiple'+dp+' style="display:none">'+
     '</div>'
   );
+}
+
+var _pendingPhotoCameraInput = null, _pendingPhotoGalleryInput = null;
+function openPhotoChoiceSheet(cameraInput, galleryInput){
+  _pendingPhotoCameraInput = cameraInput;
+  _pendingPhotoGalleryInput = galleryInput;
+  var modal = $("#photoChoiceModal");
+  if(modal) modal.classList.add("show");
 }
 
 function renderNcBlocks(){
@@ -2116,6 +2176,28 @@ function showView(name){
 }
 
 /* ===================== RAPPORT UNITAIRE ===================== */
+/* Rend une série de photos en grille 4x4 élégante, format A4 : jusqu'à 16 photos par
+   page/bloc ; au-delà, un nouveau bloc 4x4 est créé automatiquement (pagination). */
+function renderPhotoGridA4(photos){
+  if(!photos || !photos.length) return "";
+  var html = "";
+  for(var i=0; i<photos.length; i+=16){
+    var chunk = photos.slice(i, i+16);
+    html += '<div class="rphotos-a4-page">';
+    chunk.forEach(function(p){
+      html += '<div class="rphoto-a4-cell"><img src="'+p.src+'">'+
+        (p.caption ? '<div class="rphoto-a4-cap">'+escapeHtml(p.caption)+'</div>' : '')+
+        '</div>';
+    });
+    // compléter les cases vides pour garder une grille 4x4 régulière et élégante
+    for(var j=chunk.length; j<16; j++){
+      html += '<div class="rphoto-a4-cell rphoto-a4-empty"></div>';
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
 function buildSingleReportHtml(ctrl){
   var order = ctrl.paramOrder || Object.keys(ctrl.parametres);
   var paramsHtml = order.map(function(p){
@@ -2154,11 +2236,7 @@ function buildSingleReportHtml(ctrl){
 
   var photosHtmlDoc = "";
   if(ctrl.photos && ctrl.photos.length){
-    photosHtmlDoc = '<h3 class="rsection">📸 Photos terrain (preuves)</h3><div class="rphotos-grid">'+
-      ctrl.photos.map(function(p){
-        return '<div class="rphoto-cell"><img src="'+p.src+'">'+(p.caption?'<div class="rphoto-cap">'+escapeHtml(p.caption)+'</div>':'')+'</div>';
-      }).join("")+
-    '</div>';
+    photosHtmlDoc = '<h3 class="rsection">📸 Photos terrain (preuves)</h3>'+renderPhotoGridA4(ctrl.photos);
   }
 
   var alertHtml = "";
@@ -2263,11 +2341,7 @@ function buildSynthesisHtml(){
 
   var synthPhotosHtml = "";
   if(state.synthPhotos && state.synthPhotos.length){
-    synthPhotosHtml = '<h3 class="rsection">📸 Photo(s) de la fiche de rapport (quart)</h3><div class="rphotos-grid">'+
-      state.synthPhotos.map(function(p){
-        return '<div class="rphoto-cell"><img src="'+p.src+'">'+(p.caption?'<div class="rphoto-cap">'+escapeHtml(p.caption)+'</div>':'')+'</div>';
-      }).join("")+
-    '</div>';
+    synthPhotosHtml = '<h3 class="rsection">📸 Photo(s) de la fiche de rapport (quart)</h3>'+renderPhotoGridA4(state.synthPhotos);
   }
 
   return (
@@ -2307,13 +2381,21 @@ function renderSynthPreview(){
     '<div style="padding:0 16px 16px;display:flex;gap:8px;flex-wrap:wrap;">'+
       '<button class="btn btn-primary" id="btnSynthPNG">🖼️ Exporter en image</button>'+
       '<button class="btn btn-dark" id="btnSynthPDF">📄 Exporter en PDF</button>'+
-      '<button class="btn btn-ghost" id="btnSynthWA">📲 Partager sur WhatsApp</button>'+
+      '<button class="btn btn-ghost" id="btnSynthWA">📤 Partager (WhatsApp, e-mail, Drive…)</button>'+
       '<button class="btn btn-dark" id="btnSynthXLSX">📊 Exporter en Excel</button>'+
       '<button class="btn btn-primary" id="btnSynthSync">🔄 Synchroniser vers le tableau de bord</button>'+
     '</div></div>';
   $("#btnSynthPNG").addEventListener("click", function(){ exportNode($("#synthDocWrap"), "png", "MIBEM_Synthese_"+todayISO()); });
   $("#btnSynthPDF").addEventListener("click", function(){ exportNode($("#synthDocWrap"), "pdf", "MIBEM_Synthese_"+todayISO()); });
-  $("#btnSynthWA").addEventListener("click", function(){ shareNode($("#synthDocWrap"), "MIBEM_Synthese_"+todayISO(), "Synthèse de fin de quart — MIBEM COMPANY"); });
+  $("#btnSynthWA").addEventListener("click", function(){
+    var controls = state.shiftControls;
+    var nbNC = controls.reduce(function(sum,c){ return sum + Object.keys(c.nc).length; }, 0);
+    var caption = "MIBEM QHSE — Synthèse de fin de quart"+
+      "\nDate : "+dmy(controls.length?controls[0].date:todayISO())+
+      "\nQuart : "+(controls.length?controls[0].quart:"—")+
+      "\nContrôles : "+controls.length+" · NC détectées : "+nbNC;
+    shareNode($("#synthDocWrap"), "MIBEM_Synthese_"+todayISO(), caption);
+  });
   $("#btnSynthXLSX").addEventListener("click", exportShiftToExcel);
   $("#btnSynthSync").addEventListener("click", function(){ syncToGoogleSheets(true); });
 }
@@ -3084,6 +3166,31 @@ document.addEventListener("DOMContentLoaded", function(){
   updateBadges();
   wireSettingsEvents();
   if($("#curVersionLabel")) $("#curVersionLabel").textContent = "v"+APP_VERSION;
+
+  // Bouton photo unique (délégué : couvre tous les blocs, y compris ceux créés dynamiquement)
+  document.body.addEventListener("click", function(e){
+    var btn = e.target.closest(".photo-single-btn");
+    if(!btn) return;
+    var wrap = btn.parentElement;
+    var cameraInput = wrap.querySelector('input[capture]');
+    var galleryInput = wrap.querySelector('input[type=file]:not([capture])');
+    openPhotoChoiceSheet(cameraInput, galleryInput);
+  });
+  if($("#photoChoiceCamera")) $("#photoChoiceCamera").addEventListener("click", function(){
+    $("#photoChoiceModal").classList.remove("show");
+    if(_pendingPhotoCameraInput) _pendingPhotoCameraInput.click();
+  });
+  if($("#photoChoiceGallery")) $("#photoChoiceGallery").addEventListener("click", function(){
+    $("#photoChoiceModal").classList.remove("show");
+    if(_pendingPhotoGalleryInput) _pendingPhotoGalleryInput.click();
+  });
+  if($("#photoChoiceCancel")) $("#photoChoiceCancel").addEventListener("click", function(){
+    $("#photoChoiceModal").classList.remove("show");
+  });
+  if($("#photoChoiceModal")) $("#photoChoiceModal").addEventListener("click", function(e){
+    if(e.target.id === "photoChoiceModal") $("#photoChoiceModal").classList.remove("show");
+  });
+
   // Vérification des mises à jour différée et protégée : ne doit jamais bloquer
   // le reste de l'application si le réseau est indisponible ou fetch() absent.
   setTimeout(function(){
@@ -3149,7 +3256,15 @@ document.addEventListener("DOMContentLoaded", function(){
 
   $("#btnExportPNG").addEventListener("click", function(){ exportNode($("#reportDocHost"), "png", "MIBEM_Controle_"+(currentReportCtrl?currentReportCtrl.heure.replace(":",""):todayISO())); });
   $("#btnExportPDF").addEventListener("click", function(){ exportNode($("#reportDocHost"), "pdf", "MIBEM_Controle_"+(currentReportCtrl?currentReportCtrl.heure.replace(":",""):todayISO())); });
-  $("#btnShareWA").addEventListener("click", function(){ shareNode($("#reportDocHost"), "MIBEM_Controle", "Rapport de contrôle — MIBEM COMPANY — "+(currentReportCtrl?currentReportCtrl.ligne:"")); });
+  $("#btnShareWA").addEventListener("click", function(){
+    var caption = currentReportCtrl
+      ? ("MIBEM QHSE — Rapport de contrôle\nLigne/Machine : "+currentReportCtrl.ligne+
+         "\nFormat : "+(currentReportCtrl.format||"—")+
+         "\nProduit : "+currentReportCtrl.produit+
+         "\nHeure : "+currentReportCtrl.heure)
+      : "Rapport de contrôle — MIBEM COMPANY";
+    shareNode($("#reportDocHost"), "MIBEM_Controle", caption);
+  });
  }catch(initErr){
   console.error("Erreur au démarrage de l'application :", initErr);
   try{ toast("Une erreur est survenue au démarrage — rechargez l'application."); }catch(e2){}
