@@ -387,15 +387,20 @@ main{
   border:1px solid #ddd;
 }
 .report-doc .rtitle{
-  text-align:center;
+  text-align:left;
   font-weight:800;
-  font-size:1.3rem;
-  letter-spacing:.08em;
+  font-size:1.25rem;
+  letter-spacing:.03em;
   color:var(--dark);
-  padding-bottom:10px;
-  margin-bottom:0;
+  margin-bottom:4px;
   font-family:-apple-system,Arial,sans-serif;
-  flex:1;
+}
+.report-doc .rcaption{
+  text-align:left;
+  font-size:.8rem;
+  font-weight:600;
+  color:var(--dark2);
+  font-family:-apple-system,Arial,sans-serif;
 }
 .report-doc .rheader{
   display:flex;
@@ -405,6 +410,7 @@ main{
   padding-bottom:12px;
   margin-bottom:14px;
 }
+.report-doc .rheader > div{flex:1;}
 .report-doc .rlogo{
   height:56px;width:56px;object-fit:contain;flex-shrink:0;
 }
@@ -473,9 +479,9 @@ main{
    (object-fit:contain préserve les proportions d'origine de chaque photo). */
 .report-doc .rphotos-a4-page{
   display:grid;
-  grid-template-columns:repeat(4, 1fr);
-  grid-template-rows:repeat(4, 1fr);
-  gap:6px;
+  grid-template-columns:repeat(2, 1fr);
+  grid-template-rows:repeat(3, 1fr);
+  gap:10px;
   width:100%;
   aspect-ratio:210/280; /* proportions proches d'une page A4 */
   margin-top:10px;
@@ -484,7 +490,7 @@ main{
 .report-doc .rphoto-a4-cell{
   position:relative;
   overflow:hidden;
-  border-radius:5px;
+  border-radius:7px;
   border:1px solid #ccc;
   background:#f4f2ec;
 }
@@ -497,8 +503,8 @@ main{
 .report-doc .rphoto-a4-cap{
   position:absolute;bottom:0;left:0;right:0;
   background:rgba(20,15,10,.62);color:#fff;
-  font-family:-apple-system,Arial,sans-serif;font-size:.58rem;font-weight:600;
-  padding:2px 4px;text-align:center;line-height:1.2;
+  font-family:-apple-system,Arial,sans-serif;font-size:.72rem;font-weight:600;
+  padding:4px 6px;text-align:center;line-height:1.25;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .bottom-nav{
@@ -812,7 +818,8 @@ main{
     <div class="modal-actions">
       <button class="btn btn-primary" id="btnExportPNG">🖼️ Exporter en image</button>
       <button class="btn btn-dark" id="btnExportPDF">📄 Exporter en PDF</button>
-      <button class="btn btn-ghost" id="btnShareWA">📤 Partager (WhatsApp, e-mail, Drive…)</button>
+      <button class="btn btn-ghost" id="btnShareWA">📤 Partager le PDF (WhatsApp, e-mail, Drive…)</button>
+      <button class="btn btn-ghost" id="btnShareImg">📤 Partager l'image</button>
     </div>
   </div>
 </div>
@@ -2097,18 +2104,23 @@ function worstStatus(ctrl){
 }
 
 function saveControl(){
-  if(!$("#f-machine").value || !$("#f-produit").value){
-    toast("Merci de sélectionner une ligne et un produit.");
-    return;
+  try{
+    if(!$("#f-machine").value || !$("#f-produit").value){
+      toast("Merci de sélectionner une ligne et un produit.");
+      return;
+    }
+    var ctrl = readFormAsControl();
+    var idx = state.shiftControls.findIndex(function(c){ return c.id === ctrl.id; });
+    if(idx >= 0){ state.shiftControls[idx] = ctrl; toast("Contrôle mis à jour."); }
+    else { state.shiftControls.push(ctrl); toast("Contrôle enregistré ✔ (hors ligne, sauvegardé sur l'appareil)"); }
+    renderHistory();
+    updateBadges();
+    resetForm(true);
+    showView("history");
+  }catch(err){
+    console.error("Erreur lors de l'enregistrement du contrôle :", err);
+    toast("⚠️ Erreur lors de l'enregistrement — le contrôle n'a peut-être pas été sauvegardé. Réessayez.");
   }
-  var ctrl = readFormAsControl();
-  var idx = state.shiftControls.findIndex(function(c){ return c.id === ctrl.id; });
-  if(idx >= 0){ state.shiftControls[idx] = ctrl; toast("Contrôle mis à jour."); }
-  else { state.shiftControls.push(ctrl); toast("Contrôle enregistré ✔"); }
-  renderHistory();
-  updateBadges();
-  resetForm(true);
-  showView("history");
 }
 
 function deleteControl(id){
@@ -2176,26 +2188,45 @@ function showView(name){
 }
 
 /* ===================== RAPPORT UNITAIRE ===================== */
-/* Rend une série de photos en grille 4x4 élégante, format A4 : jusqu'à 16 photos par
-   page/bloc ; au-delà, un nouveau bloc 4x4 est créé automatiquement (pagination). */
+/* Rend une série de photos en grille 2x3 (2 colonnes x 3 lignes = 6 photos), en grand
+   format, bien visible. Au-delà de 6 photos, un nouveau bloc est créé (pagination). */
 function renderPhotoGridA4(photos){
   if(!photos || !photos.length) return "";
   var html = "";
-  for(var i=0; i<photos.length; i+=16){
-    var chunk = photos.slice(i, i+16);
+  for(var i=0; i<photos.length; i+=6){
+    var chunk = photos.slice(i, i+6);
     html += '<div class="rphotos-a4-page">';
     chunk.forEach(function(p){
       html += '<div class="rphoto-a4-cell"><img src="'+p.src+'">'+
         (p.caption ? '<div class="rphoto-a4-cap">'+escapeHtml(p.caption)+'</div>' : '')+
         '</div>';
     });
-    // compléter les cases vides pour garder une grille 4x4 régulière et élégante
-    for(var j=chunk.length; j<16; j++){
+    // compléter les cases vides pour garder une grille régulière et élégante
+    for(var j=chunk.length; j<6; j++){
       html += '<div class="rphoto-a4-cell rphoto-a4-empty"></div>';
     }
     html += '</div>';
   }
   return html;
+}
+
+/* Légende obligatoire pour tout partage d'un rapport de contrôle. */
+function buildControlCaption(ctrl){
+  if(!ctrl) return "Rapport de contrôle — MIBEM COMPANY";
+  return "Rapport de contrôle — MIBEM QHSE"+
+    "\nDate : "+dmy(ctrl.date)+
+    "\nHeure : "+ctrl.heure+
+    "\nMachine : "+ctrl.ligne+
+    "\nProduit : "+ctrl.produit;
+}
+
+/* Légende obligatoire pour tout partage de la synthèse de fin de quart. */
+function buildSynthesisCaption(){
+  var controls = state.shiftControls;
+  return "Rapport de fin de quart — MIBEM QHSE"+
+    "\nQuart : "+(controls.length?controls[0].quart:"—")+
+    "\nHeure : "+nowHM()+
+    "\nDate : "+dmy(controls.length?controls[0].date:todayISO());
 }
 
 function buildSingleReportHtml(ctrl){
@@ -2248,7 +2279,8 @@ function buildSingleReportHtml(ctrl){
     '<div class="report-doc" id="reportDocInner">'+
       '<div class="rheader">'+
         '<img class="rlogo" src="'+LOGO_DATA_URI+'" alt="MIBEM COMPANY">'+
-        '<div class="rtitle">𝗖𝗢𝗡𝗧𝗥𝗢̂𝗟𝗘 SUR LES 𝗟𝗜𝗚𝗡𝗘𝗦</div>'+
+        '<div><div class="rtitle">📋 Rapport de contrôle</div>'+
+        '<div class="rcaption">Date : '+escapeHtml(dmy(ctrl.date))+' · Heure : '+escapeHtml(ctrl.heure)+' · Machine : '+escapeHtml(ctrl.ligne)+' · Produit : '+escapeHtml(ctrl.produit)+'</div></div>'+
       '</div>'+
       '<div class="rmeta">'+
         '<div><b>Date :</b> '+escapeHtml(dmy(ctrl.date))+'</div>'+
@@ -2348,7 +2380,8 @@ function buildSynthesisHtml(){
     '<div class="report-doc" id="reportDocInner">'+
       '<div class="rheader">'+
         '<img class="rlogo" src="'+LOGO_DATA_URI+'" alt="MIBEM COMPANY">'+
-        '<div class="rtitle">RAPPORT JOURNALIER — CONTRÔLE QUALITÉ<br><span style="font-size:.8rem;font-weight:600;">Lignes de conditionnement — MIBEM COMPANY</span></div>'+
+        '<div><div class="rtitle">📋 Rapport de fin de quart</div>'+
+        '<div class="rcaption">Quart : '+escapeHtml(quart)+' · Heure : '+escapeHtml(nowHM())+' · Date : '+escapeHtml(dmy(date))+'</div></div>'+
       '</div>'+
       '<div class="rmeta">'+
         '<div><b>Date :</b> '+escapeHtml(dmy(date))+'</div>'+
@@ -2381,22 +2414,22 @@ function renderSynthPreview(){
     '<div style="padding:0 16px 16px;display:flex;gap:8px;flex-wrap:wrap;">'+
       '<button class="btn btn-primary" id="btnSynthPNG">🖼️ Exporter en image</button>'+
       '<button class="btn btn-dark" id="btnSynthPDF">📄 Exporter en PDF</button>'+
-      '<button class="btn btn-ghost" id="btnSynthWA">📤 Partager (WhatsApp, e-mail, Drive…)</button>'+
+      '<button class="btn btn-ghost" id="btnSynthWA">📤 Partager le PDF (WhatsApp, e-mail, Drive…)</button>'+
+      '<button class="btn btn-ghost" id="btnSynthShareImg">📤 Partager l\'image</button>'+
       '<button class="btn btn-dark" id="btnSynthXLSX">📊 Exporter en Excel</button>'+
+      '<button class="btn btn-ghost" id="btnSynthShareXLSX">📤 Partager l\'Excel</button>'+
       '<button class="btn btn-primary" id="btnSynthSync">🔄 Synchroniser vers le tableau de bord</button>'+
     '</div></div>';
   $("#btnSynthPNG").addEventListener("click", function(){ exportNode($("#synthDocWrap"), "png", "MIBEM_Synthese_"+todayISO()); });
   $("#btnSynthPDF").addEventListener("click", function(){ exportNode($("#synthDocWrap"), "pdf", "MIBEM_Synthese_"+todayISO()); });
   $("#btnSynthWA").addEventListener("click", function(){
-    var controls = state.shiftControls;
-    var nbNC = controls.reduce(function(sum,c){ return sum + Object.keys(c.nc).length; }, 0);
-    var caption = "MIBEM QHSE — Synthèse de fin de quart"+
-      "\nDate : "+dmy(controls.length?controls[0].date:todayISO())+
-      "\nQuart : "+(controls.length?controls[0].quart:"—")+
-      "\nContrôles : "+controls.length+" · NC détectées : "+nbNC;
-    shareNode($("#synthDocWrap"), "MIBEM_Synthese_"+todayISO(), caption);
+    shareNode($("#synthDocWrap"), "MIBEM_Synthese_"+todayISO(), buildSynthesisCaption(), "pdf");
+  });
+  $("#btnSynthShareImg").addEventListener("click", function(){
+    shareNode($("#synthDocWrap"), "MIBEM_Synthese_"+todayISO(), buildSynthesisCaption(), "png");
   });
   $("#btnSynthXLSX").addEventListener("click", exportShiftToExcel);
+  $("#btnSynthShareXLSX").addEventListener("click", function(){ shareShiftExcel(buildSynthesisCaption()); });
   $("#btnSynthSync").addEventListener("click", function(){ syncToGoogleSheets(true); });
 }
 
@@ -2472,41 +2505,95 @@ function saveDocumentToNativeStorage(base64Data, fileName){
 
 /* Construit le PDF (haute résolution, sans perte) à partir d'un nœud du rapport.
    Retourne { blob, base64 (sans préfixe data:), dataUri } */
+/* Génère le PDF section par section plutôt qu'en une seule capture découpée à l'aveugle :
+   chaque grille de photos (.rphotos-a4-page) obtient sa PROPRE page, jamais coupée en deux
+   entre deux pages — c'est ce qui corrige les "éléments discontinus" du PDF partagé. */
 function buildPdfFromNode(node){
-  return html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
-    var imgData = canvas.toDataURL("image/png");
-    var jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
-    var pdf = new jsPDFCtor({unit:"pt", format:"a4"});
-    var pageW = pdf.internal.pageSize.getWidth();
-    var pageH = pdf.internal.pageSize.getHeight();
-    var imgW = pageW - 40;
-    var imgH = imgW * canvas.height / canvas.width;
-    if(imgH <= pageH - 40){
-      pdf.addImage(imgData, "PNG", 20, 20, imgW, imgH);
+  var jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+  var pdf = new jsPDFCtor({unit:"pt", format:"a4"});
+  var pageW = pdf.internal.pageSize.getWidth();
+  var pageH = pdf.internal.pageSize.getHeight();
+  var margin = 20;
+  var maxW = pageW - margin*2;
+  var maxH = pageH - margin*2;
+
+  var contentRoot = node.querySelector(".report-doc") || node;
+  var children = Array.prototype.slice.call(contentRoot.children);
+
+  // Regroupe les enfants directs : chaque grille photo devient un groupe à elle seule,
+  // le reste (en-tête, méta, paramètres, NC, alertes, pied de page) reste groupé ensemble.
+  var groups = [];
+  var currentFlow = [];
+  children.forEach(function(child){
+    if(child.classList && child.classList.contains("rphotos-a4-page")){
+      if(currentFlow.length){ groups.push({type:"flow", nodes:currentFlow}); currentFlow=[]; }
+      groups.push({type:"photopage", nodes:[child]});
     } else {
-      var ratio = canvas.width / imgW;
-      var pageCanvasHeight = (pageH - 40) * ratio;
-      var totalHeight = canvas.height;
-      var offset = 0;
-      var first = true;
-      while(offset < totalHeight){
-        var sliceH = Math.min(pageCanvasHeight, totalHeight - offset);
-        var sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = sliceH;
-        var ctx = sliceCanvas.getContext("2d");
-        ctx.drawImage(canvas, 0, offset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
-        var sliceData = sliceCanvas.toDataURL("image/png");
-        if(!first) pdf.addPage();
-        pdf.addImage(sliceData, "PNG", 20, 20, imgW, sliceH/ratio);
-        offset += sliceH;
-        first = false;
-      }
+      currentFlow.push(child);
     }
+  });
+  if(currentFlow.length) groups.push({type:"flow", nodes:currentFlow});
+
+  var firstPage = true;
+
+  function renderGroup(group){
+    var wrapper = document.createElement("div");
+    wrapper.className = contentRoot.className;
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-99999px";
+    wrapper.style.top = "0";
+    wrapper.style.width = contentRoot.offsetWidth + "px";
+    wrapper.style.background = "#ffffff";
+    group.nodes.forEach(function(n){ wrapper.appendChild(n.cloneNode(true)); });
+    document.body.appendChild(wrapper);
+    return html2canvas(wrapper, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
+      document.body.removeChild(wrapper);
+      var imgData = canvas.toDataURL("image/png");
+      var imgW = maxW;
+      var imgH = imgW * canvas.height / canvas.width;
+
+      if(group.type === "photopage"){
+        // Toujours sur sa propre page, jamais découpée, centrée verticalement si besoin.
+        if(!firstPage) pdf.addPage();
+        firstPage = false;
+        if(imgH > maxH){ imgH = maxH; imgW = imgH * canvas.width / canvas.height; }
+        var x = margin + (maxW - imgW)/2;
+        var y = margin + Math.max(0, (maxH - imgH)/2);
+        pdf.addImage(imgData, "PNG", x, y, imgW, imgH);
+      } else if(imgH <= maxH){
+        if(!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.addImage(imgData, "PNG", margin, margin, imgW, imgH);
+      } else {
+        var ratio = canvas.width / imgW;
+        var pageCanvasHeight = maxH * ratio;
+        var offset = 0;
+        while(offset < canvas.height){
+          var sliceH = Math.min(pageCanvasHeight, canvas.height - offset);
+          var sliceCanvas = document.createElement("canvas");
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = sliceH;
+          var ctx = sliceCanvas.getContext("2d");
+          ctx.drawImage(canvas, 0, offset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+          if(!firstPage) pdf.addPage();
+          firstPage = false;
+          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, imgW, sliceH/ratio);
+          offset += sliceH;
+        }
+      }
+    });
+  }
+
+  var chain = Promise.resolve();
+  groups.forEach(function(group){
+    chain = chain.then(function(){ return renderGroup(group); });
+  });
+
+  return chain.then(function(){
     var dataUri = pdf.output("datauristring");
     var base64 = dataUri.substring(dataUri.indexOf(",")+1);
     var blob = pdf.output("blob");
-    return { blob: blob, base64: base64, dataUri: dataUri, canvas: canvas };
+    return { blob: blob, base64: base64, dataUri: dataUri };
   });
 }
 
@@ -2591,37 +2678,53 @@ function shareViaNativeAndroid(base64, filename, mimeType, text){
   });
 }
 
-function shareNode(node, filename, text){
+function shareNode(node, filename, text, kind){
+  kind = kind || "pdf";
+  if(kind === "png"){
+    toast("Préparation de l'image...");
+    html2canvas(node, {scale:3, backgroundColor:"#ffffff", useCORS:true, imageTimeout:0}).then(function(canvas){
+      canvas.toBlob(function(blob){
+        blobToBase64(blob).then(function(base64){
+          shareBlobOrDownload(base64, blob, filename+".png", "image/png", text, "image");
+        });
+      }, "image/png");
+    }).catch(function(err){ console.error(err); toast("Erreur lors de la préparation du partage."); });
+    return;
+  }
   toast("Préparation du PDF (qualité maximale, non compressé par WhatsApp)...");
   buildPdfFromNode(node).then(function(pdfResult){
-    if(isNativeApp() && window.Capacitor.Plugins.Share && window.Capacitor.Plugins.Filesystem){
-      shareViaNativeAndroid(pdfResult.base64, filename+".pdf", "application/pdf", text)
-        .then(function(){ toast("Partagé ✔ (PDF haute qualité)"); })
-        .catch(function(err){ console.error(err); toast("Partage annulé ou impossible."); });
-      return;
-    }
-    var file = new File([pdfResult.blob], filename+".pdf", {type:"application/pdf"});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      navigator.share({files:[file], title:"MIBEM — Contrôle qualité", text:text})
-        .then(function(){ toast("Partagé ✔ (PDF haute qualité)"); })
-        .catch(function(){});
-    } else {
-      var link = document.createElement("a");
-      link.download = filename + ".pdf";
-      link.href = pdfResult.dataUri;
-      link.click();
-      window.open("https://wa.me/?text=" + encodeURIComponent(text + " (PDF téléchargé, à joindre manuellement dans WhatsApp)"), "_blank");
-      toast("PDF téléchargé — ouvrez WhatsApp pour le joindre.");
-    }
+    shareBlobOrDownload(pdfResult.base64, pdfResult.blob, filename+".pdf", "application/pdf", text, "PDF haute qualité");
   }).catch(function(err){ console.error(err); toast("Erreur lors de la préparation du partage."); });
 }
 
-/* ===================== EXPORT EXCEL (fusion tableau de bord QHSE) ===================== */
-function exportShiftToExcel(){
-  if(state.shiftControls.length === 0){
-    toast("Aucun contrôle à exporter.");
+/* Partage un fichier déjà généré (PDF, image ou Excel) via le partage natif Android,
+   avec repli sur le Web Share API puis le téléchargement classique. Réutilisé par tous
+   les formats d'export pour que "partager vers les réseaux" fonctionne partout. */
+function shareBlobOrDownload(base64, blob, filename, mimeType, text, label){
+  if(isNativeApp() && window.Capacitor.Plugins.Share && window.Capacitor.Plugins.Filesystem){
+    shareViaNativeAndroid(base64, filename, mimeType, text)
+      .then(function(){ toast("Partagé ✔ ("+label+")"); })
+      .catch(function(err){ console.error(err); toast("Partage annulé ou impossible."); });
     return;
   }
+  var file = new File([blob], filename, {type: mimeType});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    navigator.share({files:[file], title:"MIBEM — Contrôle qualité", text:text})
+      .then(function(){ toast("Partagé ✔ ("+label+")"); })
+      .catch(function(){});
+  } else {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.download = filename;
+    link.href = url;
+    link.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    toast("Fichier téléchargé — partagez-le depuis vos téléchargements.");
+  }
+}
+
+/* ===================== EXPORT EXCEL (fusion tableau de bord QHSE) ===================== */
+function buildShiftExcelWorkbook(){
   var controls = state.shiftControls;
 
   // Feuille 1 : Contrôles (une ligne par contrôle, prête pour Pareto / KPI)
@@ -2724,7 +2827,15 @@ function exportShiftToExcel(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetParametres), "Détail paramètres");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetNC), "Non-conformités");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetAlertes), "Points d'alerte");
+  return wb;
+}
 
+function exportShiftToExcel(){
+  if(state.shiftControls.length === 0){
+    toast("Aucun contrôle à exporter.");
+    return;
+  }
+  var wb = buildShiftExcelWorkbook();
   var filename = "MIBEM_QHSE_Export_" + todayISO() + ".xlsx";
   if(isNativeApp() && window.Capacitor.Plugins.Filesystem){
     var base64 = XLSX.write(wb, {bookType:"xlsx", type:"base64"});
@@ -2739,6 +2850,20 @@ function exportShiftToExcel(){
     XLSX.writeFile(wb, filename);
     toast("Export Excel généré ✔");
   }
+}
+
+function shareShiftExcel(text){
+  if(state.shiftControls.length === 0){
+    toast("Aucun contrôle à partager.");
+    return;
+  }
+  toast("Préparation du fichier Excel...");
+  var wb = buildShiftExcelWorkbook();
+  var filename = "MIBEM_QHSE_Export_" + todayISO() + ".xlsx";
+  var mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  var base64 = XLSX.write(wb, {bookType:"xlsx", type:"base64"});
+  var blob = new Blob([XLSX.write(wb, {bookType:"xlsx", type:"array"})], {type: mimeType});
+  shareBlobOrDownload(base64, blob, filename, mimeType, text, "Excel");
 }
 
 /* ===================== GESTION DU CATALOGUE (PARAMÈTRES) ===================== */
@@ -3257,13 +3382,10 @@ document.addEventListener("DOMContentLoaded", function(){
   $("#btnExportPNG").addEventListener("click", function(){ exportNode($("#reportDocHost"), "png", "MIBEM_Controle_"+(currentReportCtrl?currentReportCtrl.heure.replace(":",""):todayISO())); });
   $("#btnExportPDF").addEventListener("click", function(){ exportNode($("#reportDocHost"), "pdf", "MIBEM_Controle_"+(currentReportCtrl?currentReportCtrl.heure.replace(":",""):todayISO())); });
   $("#btnShareWA").addEventListener("click", function(){
-    var caption = currentReportCtrl
-      ? ("MIBEM QHSE — Rapport de contrôle\nLigne/Machine : "+currentReportCtrl.ligne+
-         "\nFormat : "+(currentReportCtrl.format||"—")+
-         "\nProduit : "+currentReportCtrl.produit+
-         "\nHeure : "+currentReportCtrl.heure)
-      : "Rapport de contrôle — MIBEM COMPANY";
-    shareNode($("#reportDocHost"), "MIBEM_Controle", caption);
+    shareNode($("#reportDocHost"), "MIBEM_Controle", buildControlCaption(currentReportCtrl), "pdf");
+  });
+  $("#btnShareImg").addEventListener("click", function(){
+    shareNode($("#reportDocHost"), "MIBEM_Controle", buildControlCaption(currentReportCtrl), "png");
   });
  }catch(initErr){
   console.error("Erreur au démarrage de l'application :", initErr);
