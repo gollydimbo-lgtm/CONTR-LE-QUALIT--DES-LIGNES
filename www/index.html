@@ -295,6 +295,30 @@ main{
 @media(min-width:560px){
   .photo-grid-large .photo-item{width:calc(33.333% - 9px);}
 }
+.searchable-select-wrap{position:relative;}
+.searchable-select-input{
+  width:100%;padding:10px 11px;border:1.5px solid var(--line);border-radius:8px;
+  font-size:.92rem;background:#fdfcfa;color:var(--ink);font-family:inherit;
+}
+.searchable-select-input:focus{outline:2px solid var(--gold);outline-offset:1px;border-color:var(--gold);}
+.searchable-select-native{
+  position:absolute;opacity:0;pointer-events:none;height:1px;width:1px;overflow:hidden;
+}
+.searchable-select-dropdown{
+  display:none;position:absolute;top:100%;left:0;right:0;z-index:70;
+  background:#fff;border:1.5px solid var(--gold);border-top:none;
+  border-radius:0 0 9px 9px;max-height:260px;overflow-y:auto;
+  box-shadow:0 8px 18px rgba(20,15,10,.18);
+}
+.searchable-select-dropdown.show{display:block;}
+.ssd-group{
+  padding:6px 12px 3px;font-size:.65rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--ink-soft);background:#f7f5ef;
+  position:sticky;top:0;
+}
+.ssd-item{padding:10px 13px;font-size:.86rem;cursor:pointer;border-bottom:1px solid #f2efe6;}
+.ssd-item:hover{background:var(--gold);color:#1c1200;}
+.ssd-empty{padding:14px;color:var(--ink-soft);font-size:.82rem;text-align:center;}
 .readonly-field{
   padding:10px 11px;border-radius:8px;background:#f2f0e8;
   border:1.5px dashed var(--line);font-weight:700;font-size:.86rem;color:var(--dark2);
@@ -1599,6 +1623,114 @@ function autoQuart(){
 }
 
 /* ===================== INITIALISATION DES SÉLECTEURS ===================== */
+/* ===================== RECHERCHE INCRÉMENTALE (listes longues : Machine, Produit, Défaut) =====================
+   Transforme un <select> avec beaucoup d'options en un champ de recherche : on tape, la
+   liste se filtre en direct, on clique/tape sur le résultat voulu. Le <select> d'origine
+   reste la source de vérité (valeur, événement "change"), donc toute la logique existante
+   continue de fonctionner sans modification. */
+function normalizeSearchText(s){
+  return (s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
+function enhanceSelectWithSearch(select, placeholder){
+  if(!select || select._searchEnhanced) return;
+  select._searchEnhanced = true;
+
+  var wrap = document.createElement("div");
+  wrap.className = "searchable-select-wrap";
+  select.parentNode.insertBefore(wrap, select);
+
+  var input = document.createElement("input");
+  input.type = "text";
+  input.className = "searchable-select-input";
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("inputmode", "search");
+  input.placeholder = placeholder || "Rechercher…";
+  wrap.appendChild(input);
+
+  var dropdown = document.createElement("div");
+  dropdown.className = "searchable-select-dropdown";
+  wrap.appendChild(dropdown);
+
+  wrap.appendChild(select);
+  select.classList.add("searchable-select-native");
+
+  function optionsData(){
+    var data = [];
+    Array.prototype.forEach.call(select.children, function(node){
+      if(node.tagName === "OPTGROUP"){
+        Array.prototype.forEach.call(node.children, function(opt){
+          data.push({value:opt.value, label:opt.textContent, group:node.label});
+        });
+      } else if(node.tagName === "OPTION"){
+        data.push({value:node.value, label:node.textContent, group:null});
+      }
+    });
+    return data;
+  }
+
+  function syncInputFromSelect(){
+    var opt = select.options[select.selectedIndex];
+    input.value = opt ? opt.textContent : "";
+  }
+
+  function closeDropdown(){
+    dropdown.classList.remove("show");
+  }
+
+  function renderDropdown(filterText){
+    var data = optionsData();
+    var nf = normalizeSearchText(filterText);
+    var filtered = nf ? data.filter(function(o){ return normalizeSearchText(o.label).indexOf(nf) !== -1; }) : data;
+    dropdown.innerHTML = "";
+    if(filtered.length === 0){
+      dropdown.innerHTML = '<div class="ssd-empty">Aucun résultat</div>';
+      dropdown.classList.add("show");
+      return;
+    }
+    var lastGroup;
+    filtered.forEach(function(o){
+      if(o.group !== lastGroup){
+        if(o.group){
+          var gEl = document.createElement("div");
+          gEl.className = "ssd-group";
+          gEl.textContent = o.group;
+          dropdown.appendChild(gEl);
+        }
+        lastGroup = o.group;
+      }
+      var item = document.createElement("div");
+      item.className = "ssd-item";
+      item.textContent = o.label;
+      item.addEventListener("mousedown", function(e){
+        e.preventDefault();
+        select.value = o.value;
+        syncInputFromSelect();
+        closeDropdown();
+        select.dispatchEvent(new Event("change"));
+      });
+      dropdown.appendChild(item);
+    });
+    dropdown.classList.add("show");
+  }
+
+  input.addEventListener("focus", function(){ renderDropdown(""); input.select(); });
+  input.addEventListener("input", function(){ renderDropdown(input.value); });
+  input.addEventListener("blur", function(){
+    setTimeout(function(){ closeDropdown(); syncInputFromSelect(); }, 150);
+  });
+  input.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closeDropdown(); input.blur(); }
+  });
+
+  select.addEventListener("change", syncInputFromSelect);
+  // Si le code (catalogue, réinitialisation du formulaire...) reconstruit les <option>,
+  // on garde le champ de recherche synchronisé automatiquement.
+  new MutationObserver(syncInputFromSelect).observe(select, {childList:true});
+
+  syncInputFromSelect();
+}
+
 function fillMachineSelect(){
   var sel = $("#f-machine");
   sel.innerHTML = "";
@@ -1867,6 +1999,7 @@ function renderNcBlocks(){
   });
   $all(".nc-defaut").forEach(function(el){
     el.addEventListener("change", function(){ state.ncData[el.dataset.p].defaut = el.value; });
+    enhanceSelectWithSearch(el, "Rechercher un défaut…");
   });
   $all(".nc-qte").forEach(function(el){
     el.addEventListener("input", function(){ state.ncData[el.dataset.p].quantite = el.value; });
@@ -3325,6 +3458,8 @@ document.addEventListener("DOMContentLoaded", function(){
 
   $("#f-machine").addEventListener("change", onMachineChange);
   $("#f-emballage").addEventListener("change", onEmballageChange);
+  enhanceSelectWithSearch($("#f-machine"), "Rechercher une ligne / machine…");
+  enhanceSelectWithSearch($("#f-produit"), "Rechercher un produit…");
   $("#terrainPhotoCamera").addEventListener("change", function(){ handleTerrainPhotoInput(this); });
   $("#terrainPhotoGallery").addEventListener("change", function(){ handleTerrainPhotoInput(this); });
   renderTerrainPhotos();
