@@ -2210,23 +2210,18 @@ function renderPhotoGridA4(photos){
   return html;
 }
 
-/* Légende obligatoire pour tout partage d'un rapport de contrôle. */
+/* Légende de partage : simple et courte — type de rapport + ligne (le nom de la ligne
+   inclut déjà le format/volume, ex. "Eurostar 9 – 35 cl"). */
 function buildControlCaption(ctrl){
   if(!ctrl) return "Rapport de contrôle — MIBEM COMPANY";
-  return "Rapport de contrôle — MIBEM QHSE"+
-    "\nDate : "+dmy(ctrl.date)+
-    "\nHeure : "+ctrl.heure+
-    "\nMachine : "+ctrl.ligne+
-    "\nProduit : "+ctrl.produit;
+  return "Rapport de contrôle — MIBEM COMPANY — "+ctrl.ligne;
 }
 
-/* Légende obligatoire pour tout partage de la synthèse de fin de quart. */
+/* Légende de partage pour la synthèse de fin de quart. */
 function buildSynthesisCaption(){
   var controls = state.shiftControls;
-  return "Rapport de fin de quart — MIBEM QHSE"+
-    "\nQuart : "+(controls.length?controls[0].quart:"—")+
-    "\nHeure : "+nowHM()+
-    "\nDate : "+dmy(controls.length?controls[0].date:todayISO());
+  var quart = controls.length ? controls[0].quart : "";
+  return "Rapport de fin de quart — MIBEM COMPANY"+(quart ? " — "+quart : "");
 }
 
 function buildSingleReportHtml(ctrl){
@@ -2279,8 +2274,7 @@ function buildSingleReportHtml(ctrl){
     '<div class="report-doc" id="reportDocInner">'+
       '<div class="rheader">'+
         '<img class="rlogo" src="'+LOGO_DATA_URI+'" alt="MIBEM COMPANY">'+
-        '<div><div class="rtitle">📋 Rapport de contrôle</div>'+
-        '<div class="rcaption">Date : '+escapeHtml(dmy(ctrl.date))+' · Heure : '+escapeHtml(ctrl.heure)+' · Machine : '+escapeHtml(ctrl.ligne)+' · Produit : '+escapeHtml(ctrl.produit)+'</div></div>'+
+        '<div class="rtitle">📋 Rapport de contrôle</div>'+
       '</div>'+
       '<div class="rmeta">'+
         '<div><b>Date :</b> '+escapeHtml(dmy(ctrl.date))+'</div>'+
@@ -2380,8 +2374,7 @@ function buildSynthesisHtml(){
     '<div class="report-doc" id="reportDocInner">'+
       '<div class="rheader">'+
         '<img class="rlogo" src="'+LOGO_DATA_URI+'" alt="MIBEM COMPANY">'+
-        '<div><div class="rtitle">📋 Rapport de fin de quart</div>'+
-        '<div class="rcaption">Quart : '+escapeHtml(quart)+' · Heure : '+escapeHtml(nowHM())+' · Date : '+escapeHtml(dmy(date))+'</div></div>'+
+        '<div class="rtitle">📋 Rapport de fin de quart</div>'+
       '</div>'+
       '<div class="rmeta">'+
         '<div><b>Date :</b> '+escapeHtml(dmy(date))+'</div>'+
