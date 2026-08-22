@@ -503,7 +503,7 @@ main{
    (object-fit:contain préserve les proportions d'origine de chaque photo). */
 .report-doc .rphotos-a4-page{
   display:grid;
-  grid-template-columns:repeat(2, 1fr);
+  grid-template-columns:repeat(3, 1fr);
   grid-template-rows:repeat(3, 1fr);
   gap:10px;
   width:100%;
@@ -1544,6 +1544,53 @@ function safeLocalStorageSet(key, value){
   try{ window.localStorage.setItem(key, value); return true; }catch(e){ return false; }
 }
 
+/* ===================== STOCKAGE PERSISTANT DU QUART (IndexedDB) =====================
+   localStorage est plafonné à 5-10 Mo au total sur la plupart des appareils — avec
+   des photos en base64, cette limite est atteinte dès 2-3 contrôles, et les suivants
+   échouaient à s'enregistrer SILENCIEUSEMENT (aucune erreur visible, juste une perte
+   de données). IndexedDB permet des centaines de Mo et règle ce problème à la racine.
+   En cas d'indisponibilité d'IndexedDB (très rare), on retombe sur localStorage. */
+var IDB_NAME = "mibem_qhse_db";
+var IDB_VERSION = 1;
+var IDB_STORE = "mibem_store";
+var _idbPromise = null;
+
+function idbOpen(){
+  if(_idbPromise) return _idbPromise;
+  _idbPromise = new Promise(function(resolve, reject){
+    if(!window.indexedDB){ reject(new Error("IndexedDB indisponible sur cet appareil")); return; }
+    var req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = function(e){
+      var db = e.target.result;
+      if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = function(e){ resolve(e.target.result); };
+    req.onerror = function(){ reject(req.error || new Error("Erreur d'ouverture IndexedDB")); };
+  });
+  return _idbPromise;
+}
+function idbSet(key, value){
+  return idbOpen().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = function(){ resolve(true); };
+      tx.onerror = function(){ reject(tx.error); };
+      tx.onabort = function(){ reject(tx.error || new Error("Transaction IndexedDB annulée")); };
+    });
+  });
+}
+function idbGet(key){
+  return idbOpen().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(IDB_STORE, "readonly");
+      var req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  });
+}
+
 function loadCatalog(){
   var raw = safeLocalStorageGet(CATALOG_STORAGE_KEY);
   if(!raw) return defaultCatalog();
@@ -1581,22 +1628,56 @@ var state = {
 };
 
 var SHIFT_STORAGE_KEY = "mibem_qhse_shift_v1";
+var _saveShiftTimer = null;
+
+/* Sauvegarde du quart en cours. Écriture regroupée (léger délai de 250ms) pour éviter
+   de multiplier les transactions IndexedDB lors de saisies rapprochées, sans jamais
+   retarder l'affichage : l'état est déjà en mémoire (state.*), seule la persistance
+   sur disque est différée de quelques millisecondes. */
 function saveShiftToStorage(){
-  safeLocalStorageSet(SHIFT_STORAGE_KEY, JSON.stringify({
+  var payload = {
     shiftControls: state.shiftControls,
     synthPhotos: state.synthPhotos,
     nextId: state.nextId
-  }));
+  };
+  clearTimeout(_saveShiftTimer);
+  _saveShiftTimer = setTimeout(function(){
+    idbSet(SHIFT_STORAGE_KEY, payload).catch(function(err){
+      console.error("Échec de sauvegarde IndexedDB, repli sur localStorage :", err);
+      try{
+        safeLocalStorageSet(SHIFT_STORAGE_KEY, JSON.stringify(payload));
+      }catch(e){
+        toast("⚠️ Stockage plein — exportez vos rapports puis démarrez un nouveau quart.");
+      }
+    });
+  }, 250);
 }
+
+/* Charge le quart en cours au démarrage. Retourne une Promise : l'appelant doit
+   attendre sa résolution avant d'afficher l'historique (voir DOMContentLoaded). */
 function loadShiftFromStorage(){
-  var raw = safeLocalStorageGet(SHIFT_STORAGE_KEY);
-  if(!raw) return;
-  try{
-    var parsed = JSON.parse(raw);
-    state.shiftControls = parsed.shiftControls || [];
-    state.synthPhotos = parsed.synthPhotos || [];
-    state.nextId = parsed.nextId || (state.shiftControls.length + 1);
-  }catch(e){}
+  function applyParsed(parsed){
+    state.shiftControls = (parsed && parsed.shiftControls) || [];
+    state.synthPhotos = (parsed && parsed.synthPhotos) || [];
+    state.nextId = (parsed && parsed.nextId) || (state.shiftControls.length + 1);
+  }
+  function fallbackToLocalStorage(){
+    var raw = safeLocalStorageGet(SHIFT_STORAGE_KEY);
+    if(!raw) return;
+    try{ applyParsed(JSON.parse(raw)); }catch(e){}
+  }
+  return idbGet(SHIFT_STORAGE_KEY).then(function(idbData){
+    if(idbData){ applyParsed(idbData); return; }
+    // Rien en IndexedDB : migration automatique depuis une ancienne version
+    // de l'app qui stockait tout dans localStorage.
+    var raw = safeLocalStorageGet(SHIFT_STORAGE_KEY);
+    if(raw){
+      try{ applyParsed(JSON.parse(raw)); saveShiftToStorage(); }catch(e){}
+    }
+  }).catch(function(err){
+    console.error("IndexedDB indisponible au chargement, repli sur localStorage :", err);
+    fallbackToLocalStorage();
+  });
 }
 
 /* ===================== UTILITAIRES ===================== */
@@ -2321,13 +2402,13 @@ function showView(name){
 }
 
 /* ===================== RAPPORT UNITAIRE ===================== */
-/* Rend une série de photos en grille 2x3 (2 colonnes x 3 lignes = 6 photos), en grand
-   format, bien visible. Au-delà de 6 photos, un nouveau bloc est créé (pagination). */
+/* Rend une série de photos en grille 3x3 (3 colonnes x 3 lignes = 9 photos), en grand
+   format, bien visible. Au-delà de 9 photos, un nouveau bloc est créé (pagination). */
 function renderPhotoGridA4(photos){
   if(!photos || !photos.length) return "";
   var html = "";
-  for(var i=0; i<photos.length; i+=6){
-    var chunk = photos.slice(i, i+6);
+  for(var i=0; i<photos.length; i+=9){
+    var chunk = photos.slice(i, i+9);
     html += '<div class="rphotos-a4-page">';
     chunk.forEach(function(p){
       html += '<div class="rphoto-a4-cell"><img src="'+p.src+'">'+
@@ -2335,7 +2416,7 @@ function renderPhotoGridA4(photos){
         '</div>';
     });
     // compléter les cases vides pour garder une grille régulière et élégante
-    for(var j=chunk.length; j<6; j++){
+    for(var j=chunk.length; j<9; j++){
       html += '<div class="rphoto-a4-cell rphoto-a4-empty"></div>';
     }
     html += '</div>';
@@ -3400,13 +3481,16 @@ function wireSettingsEvents(){
 }
 
 /* ===================== ÉVÉNEMENTS ===================== */
-document.addEventListener("DOMContentLoaded", function(){
+document.addEventListener("DOMContentLoaded", async function(){
  try{
   var hl = $("#headerLogo");
   if(hl) hl.src = LOGO_DATA_URI;
 
   state.catalog = loadCatalog();
-  loadShiftFromStorage();
+  // On attend que le quart en cours soit chargé depuis IndexedDB avant de rendre
+  // quoi que ce soit qui en dépend (historique, photos de synthèse) — sinon un
+  // rendu prématuré écraserait les données persistées par un tableau vide.
+  await loadShiftFromStorage();
 
   fillMachineSelect();
   fillProduitSelect();
